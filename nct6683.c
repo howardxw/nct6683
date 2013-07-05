@@ -1029,12 +1029,12 @@ store_global_beep(struct device *dev, struct device_attribute *attr,
 	}
 
 	superio_select(sio_data->sioreg, NCT6683_LD_HWM);
-	reg = superio_inb(sio_data->sioreg, NCT6683_REG_CR_CASEOPEN);
+	reg = superio_inb(sio_data->sioreg, NCT6683_REG_CR_BEEP);
 	if (val)
 		reg |= NCT6683_CR_BEEP_MASK;
 	else
 		reg &= ~NCT6683_CR_BEEP_MASK;
-	superio_outb(sio_data->sioreg, NCT6683_REG_CR_CASEOPEN, reg);
+	superio_outb(sio_data->sioreg, NCT6683_REG_CR_BEEP, reg);
 	superio_exit(sio_data->sioreg);
 error:
 	mutex_unlock(&data->update_lock);
