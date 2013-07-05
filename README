@@ -1,0 +1,33 @@
+Note
+====
+
+Substantial testing and review feedback will be required for this driver to be
+merged into the upstream kernel. If you use the latest version of this driver,
+and/or if you can provide review feedback, please let the author know.
+
+Kernel driver nct6683
+=====================
+
+Supported chips:
+  * Nuvoton NCT6683D
+    Prefix: 'nct6683'
+    Addresses scanned: ISA address retrieved from Super I/O registers
+    Datasheet: Available from Nuvoton upon request
+
+Authors:
+        Guenter Roeck <linux@roeck-us.net>
+
+Description
+-----------
+
+This driver implements support for the Nuvoton NCT6683D eSIO chip.
+
+The chips implement up to shared 32 temperature and voltage sensors.
+It supports up to 16 fan rotation sensors and up to 8 fan control engines.
+
+Temperatures are measured in degrees Celsius. Measurement resolution is
+0.5 degrees C.
+
+Voltage sensors (also known as IN sensors) report their values in millivolts.
+
+Fan rotation speeds are reported in RPM (rotations per minute).
