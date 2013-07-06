@@ -44,9 +44,12 @@
 
 enum kinds { nct6683 };
 
-/* used to set data->name = nct6683_device_names[data->sio_kind] */
 static const char * const nct6683_device_names[] = {
 	"nct6683",
+};
+
+static const char * const nct6683_chip_names[] = {
+	"NCT6683D",
 };
 
 #define DRVNAME "nct6683"
@@ -159,6 +162,13 @@ superio_exit(int ioreg)
 #define NCT6683_REG_MON_LOW(x)		(0x371 + (x) * 2)	/* 8 bit */
 
 #define NCT6683_REG_FAN_MIN(x)		(0x3b8 + (x) * 2)	/* 16 bit */
+
+#define NCT6683_REG_BUILD_YEAR		0x604
+#define NCT6683_REG_BUILD_MONTH		0x605
+#define NCT6683_REG_BUILD_DAY		0x606
+#define NCT6683_REG_SERIAL		0x607
+#define NCT6683_REG_VERSION_HI		0x608
+#define NCT6683_REG_VERSION_LO		0x609
 
 #define NCT6683_REG_CR_CASEOPEN		0xe8
 #define NCT6683_CR_CASEOPEN_MASK	(1 << 7)
@@ -1311,6 +1321,14 @@ static int nct6683_probe(struct platform_device *pdev)
 		goto exit_remove;
 	}
 
+	dev_info(dev, "%s EC firmware version %d.%d build %02x/%02x/%02x\n",
+		nct6683_chip_names[data->kind],
+		nct6683_read(data, NCT6683_REG_VERSION_HI),
+		nct6683_read(data, NCT6683_REG_VERSION_LO),
+		nct6683_read(data, NCT6683_REG_BUILD_MONTH),
+		nct6683_read(data, NCT6683_REG_BUILD_DAY),
+		nct6683_read(data, NCT6683_REG_BUILD_YEAR));
+
 	return 0;
 
 exit_remove:
@@ -1401,10 +1419,6 @@ static struct platform_driver nct6683_driver = {
 	.remove		= nct6683_remove,
 };
 
-static const char * const nct6683_sio_names[] __initconst = {
-	"NCT6683D",
-};
-
 static int __init nct6683_find(int sioaddr, struct nct6683_sio_data *sio_data)
 {
 	int addr;
@@ -1447,7 +1461,7 @@ static int __init nct6683_find(int sioaddr, struct nct6683_sio_data *sio_data)
 
 	superio_exit(sioaddr);
 	pr_info("Found %s or compatible chip at %#x:%#x\n",
-		nct6683_sio_names[sio_data->kind], sioaddr, addr);
+		nct6683_chip_names[sio_data->kind], sioaddr, addr);
 	sio_data->sioreg = sioaddr;
 
 	return addr;
