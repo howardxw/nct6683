@@ -31,3 +31,10 @@ Temperatures are measured in degrees Celsius. Measurement resolution is
 Voltage sensors (also known as IN sensors) report their values in millivolts.
 
 Fan rotation speeds are reported in RPM (rotations per minute).
+
+Note
+----
+
+Limit register locations on Intel DH87RL with EC firmware version 1.0 build
+date 04/03/13 do not match the register locations in the datasheet and thus
+display all 0. Correct register locations are currently unknown.
