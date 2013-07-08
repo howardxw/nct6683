@@ -284,6 +284,7 @@ static const char *const nct6683_mon_label[] = {
 
 struct nct6683_data {
 	int addr;		/* IO base of EC space */
+	int sioreg;		/* SIO register */
 	enum kinds kind;
 	const char *name;
 
@@ -995,18 +996,17 @@ static ssize_t
 show_global_beep(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct nct6683_data *data = dev_get_drvdata(dev);
-	struct nct6683_sio_data *sio_data = dev->platform_data;
 	int ret;
 	u8 reg;
 
 	mutex_lock(&data->update_lock);
 
-	ret = superio_enter(sio_data->sioreg);
+	ret = superio_enter(data->sioreg);
 	if (ret)
 		goto error;
-	superio_select(sio_data->sioreg, NCT6683_LD_HWM);
-	reg = superio_inb(sio_data->sioreg, NCT6683_REG_CR_BEEP);
-	superio_exit(sio_data->sioreg);
+	superio_select(data->sioreg, NCT6683_LD_HWM);
+	reg = superio_inb(data->sioreg, NCT6683_REG_CR_BEEP);
+	superio_exit(data->sioreg);
 
 	mutex_unlock(&data->update_lock);
 
@@ -1022,7 +1022,6 @@ store_global_beep(struct device *dev, struct device_attribute *attr,
 		  const char *buf, size_t count)
 {
 	struct nct6683_data *data = dev_get_drvdata(dev);
-	struct nct6683_sio_data *sio_data = dev->platform_data;
 	unsigned long val;
 	u8 reg;
 	int ret;
@@ -1032,20 +1031,20 @@ store_global_beep(struct device *dev, struct device_attribute *attr,
 
 	mutex_lock(&data->update_lock);
 
-	ret = superio_enter(sio_data->sioreg);
+	ret = superio_enter(data->sioreg);
 	if (ret) {
 		count = ret;
 		goto error;
 	}
 
-	superio_select(sio_data->sioreg, NCT6683_LD_HWM);
-	reg = superio_inb(sio_data->sioreg, NCT6683_REG_CR_BEEP);
+	superio_select(data->sioreg, NCT6683_LD_HWM);
+	reg = superio_inb(data->sioreg, NCT6683_REG_CR_BEEP);
 	if (val)
 		reg |= NCT6683_CR_BEEP_MASK;
 	else
 		reg &= ~NCT6683_CR_BEEP_MASK;
-	superio_outb(sio_data->sioreg, NCT6683_REG_CR_BEEP, reg);
-	superio_exit(sio_data->sioreg);
+	superio_outb(data->sioreg, NCT6683_REG_CR_BEEP, reg);
+	superio_exit(data->sioreg);
 error:
 	mutex_unlock(&data->update_lock);
 	return count;
@@ -1057,18 +1056,17 @@ static ssize_t
 show_caseopen(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct nct6683_data *data = dev_get_drvdata(dev);
-	struct nct6683_sio_data *sio_data = dev->platform_data;
 	int ret;
 	u8 reg;
 
 	mutex_lock(&data->update_lock);
 
-	ret = superio_enter(sio_data->sioreg);
+	ret = superio_enter(data->sioreg);
 	if (ret)
 		goto error;
-	superio_select(sio_data->sioreg, NCT6683_LD_ACPI);
-	reg = superio_inb(sio_data->sioreg, NCT6683_REG_CR_CASEOPEN);
-	superio_exit(sio_data->sioreg);
+	superio_select(data->sioreg, NCT6683_LD_ACPI);
+	reg = superio_inb(data->sioreg, NCT6683_REG_CR_CASEOPEN);
+	superio_exit(data->sioreg);
 
 	mutex_unlock(&data->update_lock);
 
@@ -1084,7 +1082,6 @@ clear_caseopen(struct device *dev, struct device_attribute *attr,
 	       const char *buf, size_t count)
 {
 	struct nct6683_data *data = dev_get_drvdata(dev);
-	struct nct6683_sio_data *sio_data = dev->platform_data;
 	unsigned long val;
 	u8 reg;
 	int ret;
@@ -1099,19 +1096,19 @@ clear_caseopen(struct device *dev, struct device_attribute *attr,
 	 * Caseopen is activ low, clear by writing 1 into the register.
 	 */
 
-	ret = superio_enter(sio_data->sioreg);
+	ret = superio_enter(data->sioreg);
 	if (ret) {
 		count = ret;
 		goto error;
 	}
 
-	superio_select(sio_data->sioreg, NCT6683_LD_ACPI);
-	reg = superio_inb(sio_data->sioreg, NCT6683_REG_CR_CASEOPEN);
+	superio_select(data->sioreg, NCT6683_LD_ACPI);
+	reg = superio_inb(data->sioreg, NCT6683_REG_CR_CASEOPEN);
 	reg |= NCT6683_CR_CASEOPEN_MASK;
-	superio_outb(sio_data->sioreg, NCT6683_REG_CR_CASEOPEN, reg);
+	superio_outb(data->sioreg, NCT6683_REG_CR_CASEOPEN, reg);
 	reg &= ~NCT6683_CR_CASEOPEN_MASK;
-	superio_outb(sio_data->sioreg, NCT6683_REG_CR_CASEOPEN, reg);
-	superio_exit(sio_data->sioreg);
+	superio_outb(data->sioreg, NCT6683_REG_CR_CASEOPEN, reg);
+	superio_exit(data->sioreg);
 
 	data->valid = false;	/* Force cache refresh */
 error:
@@ -1256,6 +1253,7 @@ static int nct6683_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	data->kind = sio_data->kind;
+	data->sioreg = sio_data->sioreg;
 	data->addr = res->start;
 	mutex_init(&data->update_lock);
 	data->name = nct6683_device_names[data->kind];
