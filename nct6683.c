@@ -1241,14 +1241,12 @@ static int nct6683_probe(struct platform_device *pdev)
 	int err;
 
 	res = platform_get_resource(pdev, IORESOURCE_IO, 0);
-	if (!devm_request_region(&pdev->dev, res->start, IOREGION_LENGTH,
-				 DRVNAME)) {
+	if (!devm_request_region(dev, res->start, IOREGION_LENGTH, DRVNAME)) {
 		dev_err(dev, "busy\n");
 		return -EBUSY;
 	}
 
-	data = devm_kzalloc(&pdev->dev, sizeof(struct nct6683_data),
-			    GFP_KERNEL);
+	data = devm_kzalloc(dev, sizeof(struct nct6683_data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 
