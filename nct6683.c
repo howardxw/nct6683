@@ -1470,7 +1470,7 @@ fail:
 /*
  * when Super-I/O functions move to a separate file, the Super-I/O
  * bus will manage the lifetime of the device and this module will only keep
- * track of the nct6683 driver. But since we platform_device_alloc(), we
+ * track of the nct6683 driver. But since we use platform_device_alloc(), we
  * must keep track of the device
  */
 static struct platform_device *pdev[2];
