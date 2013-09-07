@@ -5,6 +5,8 @@ Substantial testing and review feedback will be required for this driver to be
 merged into the upstream kernel. If you use the latest version of this driver,
 and/or if you can provide review feedback, please let the author know.
 
+Also see Usage Note below for additional information about firmware variants.
+
 Kernel driver nct6683
 =====================
 
@@ -32,9 +34,17 @@ Voltage sensors (also known as IN sensors) report their values in millivolts.
 
 Fan rotation speeds are reported in RPM (rotations per minute).
 
-Note
-----
+Usage Note
+----------
 
 Limit register locations on Intel DH87RL with EC firmware version 1.0 build
-date 04/03/13 do not match the register locations in the datasheet and thus
-display all 0. Correct register locations are currently unknown.
+date 04/03/13 do not match the register locations in the datasheet.
+Nuvoton confirms that Intel uses a special firmware version with different
+register addresses. A datasheet for the Intel firmware is not available.
+
+Some of the register locations can be reverse engineered; others are too
+well hidden. Given this, writing any values from the operating system is
+considered too risky and has been disabled. All limits must all be written
+from the BIOS.
+
+The driver has been tested with the Intel firmware only.

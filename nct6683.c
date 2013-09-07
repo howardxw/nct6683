@@ -153,15 +153,18 @@ superio_exit(int ioreg)
 #define NCT6683_REG_FANOUT_CFG(x)	(0x1d0 + (x))
 #define NCT6683_REG_FANOUT_DIV(x)	(0x1d8 + (x))
 
-#define NCT6683_REG_TEMP_OFFSET(x)	(0x200 + (x))		/* 8 bit */
+#define NCT6683_REG_INTEL_TEMP_MAX(x)	(0x901 + (x) * 16)
+#define NCT6683_REG_INTEL_TEMP_CRIT(x)	(0x90d + (x) * 16)
 
-#define NCT6683_REG_TEMP_HYST(x)	(0x330 + (x) * 2)	/* 8 bit */
-#define NCT6683_REG_TEMP_MAX(x)		(0x350 + (x) * 2)	/* 8 bit */
-
+#define NCT6683_REG_TEMP_HYST(x)	(0x330 + (x))		/* 8 bit */
+#define NCT6683_REG_TEMP_MAX(x)		(0x350 + (x))		/* 8 bit */
 #define NCT6683_REG_MON_HIGH(x)		(0x370 + (x) * 2)	/* 8 bit */
 #define NCT6683_REG_MON_LOW(x)		(0x371 + (x) * 2)	/* 8 bit */
 
 #define NCT6683_REG_FAN_MIN(x)		(0x3b8 + (x) * 2)	/* 16 bit */
+
+#define NCT6683_REG_CUSTOMER_ID		0x602
+#define NCT6683_CUSTOMER_ID_INTEL	0x805
 
 #define NCT6683_REG_BUILD_YEAR		0x604
 #define NCT6683_REG_BUILD_MONTH		0x605
@@ -286,6 +289,7 @@ struct nct6683_data {
 	int addr;		/* IO base of EC space */
 	int sioreg;		/* SIO register */
 	enum kinds kind;
+	u16 customer_id;
 	const char *name;
 
 	struct device *hwmon_dev;
@@ -310,8 +314,8 @@ struct nct6683_data {
 
 	/* Temperature attribute values */
 	s16 temp_in[NCT6683_NUM_REG_MON];
-	s8 temp[5][NCT6683_NUM_REG_MON];/* 0=max, 1=lcrit, 2=crit, 3=hyst,
-					 * 4=offset
+	s8 temp[4][NCT6683_NUM_REG_MON];/* [0]=min, [1]=max, [2]=hyst,
+					 * [3]=crit
 					 */
 
 	/* Fan attribute values */
@@ -514,44 +518,65 @@ static void nct6683_write(struct nct6683_data *data, u16 reg, u16 value)
 	outb_p(value & 0xff, data->addr + EC_DATA_REG);
 }
 
-static void nct6683_write16(struct nct6683_data *data, u16 reg, u16 value)
-{
-	nct6683_write(data, reg, value >> 8);
-	nct6683_write(data, reg + 1, value & 0xff);
-}
-
-static u16 get_in_reg(struct nct6683_data *data, int nr, int index)
+static int get_in_reg(struct nct6683_data *data, int nr, int index)
 {
 	int ch = data->in_index[index];
+	int reg = -EINVAL;
 
 	switch (nr) {
-	default:
 	case 0:
-		return NCT6683_REG_MON(ch);
+		reg = NCT6683_REG_MON(ch);
+		break;
 	case 1:
-		return NCT6683_REG_MON_LOW(ch);
+		if (data->customer_id != NCT6683_CUSTOMER_ID_INTEL)
+			reg = NCT6683_REG_MON_LOW(ch);
+		break;
 	case 2:
-		return NCT6683_REG_MON_HIGH(ch);
+		if (data->customer_id != NCT6683_CUSTOMER_ID_INTEL)
+			reg = NCT6683_REG_MON_HIGH(ch);
+		break;
+	default:
+		break;
 	}
+	return reg;
 }
 
-static u16 get_temp_reg(struct nct6683_data *data, int nr, int index)
+static int get_temp_reg(struct nct6683_data *data, int nr, int index)
 {
 	int ch = data->temp_index[index];
+	int reg = -EINVAL;
 
-	switch (nr) {
+	switch(data->customer_id) {
+	case NCT6683_CUSTOMER_ID_INTEL:
+		switch (nr) {
+		default:
+		case 1:	/* max */
+			reg = NCT6683_REG_INTEL_TEMP_MAX(ch);
+			break;
+		case 3:	/* crit */
+			reg = NCT6683_REG_INTEL_TEMP_CRIT(ch);
+			break;
+		}
+		break;
 	default:
-	case 0:
-		return NCT6683_REG_TEMP_MAX(ch);
-	case 1:
-		return NCT6683_REG_MON_LOW(ch);
-	case 2:
-		return NCT6683_REG_MON_HIGH(ch);
-	case 3:
-		return NCT6683_REG_TEMP_HYST(ch);
-	case 4:
-		return NCT6683_REG_TEMP_OFFSET(ch);
+		switch (nr) {
+		default:
+		case 0:	/* min */
+			reg = NCT6683_REG_MON_LOW(ch);
+			break;
+		case 1:	/* max */
+			reg = NCT6683_REG_TEMP_MAX(ch);
+			break;
+		case 2:	/* hyst */
+			reg = NCT6683_REG_TEMP_HYST(ch);
+			break;
+		case 3:	/* crit */
+			reg = NCT6683_REG_MON_HIGH(ch);
+			break;
+		}
+		break;
 	}
+	return reg;
 }
 
 static void nct6683_update_pwm(struct device *dev)
@@ -577,13 +602,13 @@ static struct nct6683_data *nct6683_update_device(struct device *dev)
 	    || !data->valid) {
 		/* Measured voltages and limits */
 		for (i = 0; i < data->in_num; i++) {
-			u8 ch = data->in_index[i];
-			data->in[0][i] = nct6683_read(data,
-						      NCT6683_REG_MON(ch));
-			data->in[1][i] =
-			  nct6683_read(data, NCT6683_REG_MON_LOW(ch));
-			data->in[2][i] =
-			  nct6683_read(data, NCT6683_REG_MON_HIGH(ch));
+			for (j = 0; j < 3; j++) {
+				int reg = get_in_reg(data, j, i);
+
+				if (reg >= 0)
+					data->in[j][i] =
+						nct6683_read(data, reg);
+			}
 		}
 
 		/* Measured temperatures and limits */
@@ -592,10 +617,12 @@ static struct nct6683_data *nct6683_update_device(struct device *dev)
 
 			data->temp_in[i] = nct6683_read16(data,
 							  NCT6683_REG_MON(ch));
-			for (j = 0; j < 5; j++) {
-				u16 reg = get_temp_reg(data, j, i);
+			for (j = 0; j < 4; j++) {
+				int reg = get_temp_reg(data, j, i);
 
-				data->temp[j][i] = nct6683_read(data, reg);
+				if (reg >= 0)
+					data->temp[j][i] =
+						nct6683_read(data, reg);
 			}
 		}
 
@@ -645,36 +672,28 @@ show_in_reg(struct device *dev, struct device_attribute *attr, char *buf)
 		       in_from_reg(data->in[index][nr], data->in_index[index]));
 }
 
-static ssize_t
-store_in_reg(struct device *dev, struct device_attribute *attr, const char *buf,
-	     size_t count)
+static umode_t nct6683_in_is_visible(struct kobject *kobj,
+				     struct attribute *attr, int index)
 {
-	struct sensor_device_attribute_2 *sattr = to_sensor_dev_attr_2(attr);
+	struct device *dev = container_of(kobj, struct device, kobj);
 	struct nct6683_data *data = dev_get_drvdata(dev);
-	int index = sattr->index;
-	int nr = sattr->nr;
-	unsigned long val;
-	int err;
-	u16 reg;
+	int nr = index % 4;	/* attribute */
 
-	err = kstrtoul(buf, 10, &val);
-	if (err < 0)
-		return err;
+	/*
+	 * Voltage limits exist for Intel boards,
+	 * but register location and encoding is unknown
+	 */
+	if ((nr == 2 || nr == 3) &&
+	    data->customer_id == NCT6683_CUSTOMER_ID_INTEL)
+		return 0;
 
-	reg = get_in_reg(data, nr, index);
-	mutex_lock(&data->update_lock);
-	data->in[nr][index] = in_to_reg(val, data->in_index[index]);
-	nct6683_write(data, reg, data->in[nr][index]);
-	mutex_unlock(&data->update_lock);
-	return count;
+	return attr->mode;
 }
 
 SENSOR_TEMPLATE(in_label, "in%d_label", S_IRUGO, show_in_label, NULL, 0);
 SENSOR_TEMPLATE_2(in_input, "in%d_input", S_IRUGO, show_in_reg, NULL, 0, 0);
-SENSOR_TEMPLATE_2(in_min, "in%d_min", S_IWUSR | S_IRUGO, show_in_reg,
-		  store_in_reg, 0, 1);
-SENSOR_TEMPLATE_2(in_max, "in%d_max", S_IWUSR | S_IRUGO, show_in_reg,
-		  store_in_reg, 0, 2);
+SENSOR_TEMPLATE_2(in_min, "in%d_min", S_IRUGO, show_in_reg, NULL, 0, 1);
+SENSOR_TEMPLATE_2(in_max, "in%d_max", S_IRUGO, show_in_reg, NULL, 0, 2);
 
 static struct sensor_device_template *nct6683_attributes_in_template[] = {
 	&sensor_dev_template_in_label,
@@ -686,6 +705,7 @@ static struct sensor_device_template *nct6683_attributes_in_template[] = {
 
 static struct sensor_template_group nct6683_in_template_group = {
 	.templates = nct6683_attributes_in_template,
+	.is_visible = nct6683_in_is_visible,
 };
 
 static ssize_t
@@ -708,28 +728,6 @@ show_fan_min(struct device *dev, struct device_attribute *attr, char *buf)
 }
 
 static ssize_t
-store_fan_min(struct device *dev, struct device_attribute *attr,
-	      const char *buf, size_t count)
-{
-	struct sensor_device_attribute *sattr = to_sensor_dev_attr(attr);
-	struct nct6683_data *data = dev_get_drvdata(dev);
-	int nr = sattr->index;
-	unsigned long val;
-	int err;
-
-	err = kstrtoul(buf, 10, &val);
-	if (err < 0)
-		return err;
-
-	mutex_lock(&data->update_lock);
-	data->fan_min[nr] = clamp_val(val, 0, 0xffff);
-	nct6683_write16(data, NCT6683_REG_FAN_MIN(nr), data->fan_min[nr]);
-	mutex_unlock(&data->update_lock);
-
-	return count;
-}
-
-static ssize_t
 show_fan_pulses(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct sensor_device_attribute *sattr = to_sensor_dev_attr(attr);
@@ -739,50 +737,30 @@ show_fan_pulses(struct device *dev, struct device_attribute *attr, char *buf)
 		       ((data->fanin_cfg[sattr->index] >> 5) & 0x03) + 1);
 }
 
-static ssize_t
-store_fan_pulses(struct device *dev, struct device_attribute *attr,
-		 const char *buf, size_t count)
-{
-	struct nct6683_data *data = dev_get_drvdata(dev);
-	struct sensor_device_attribute *sattr = to_sensor_dev_attr(attr);
-	int nr = sattr->index;
-	unsigned long val;
-	int err;
-
-	err = kstrtoul(buf, 10, &val);
-	if (err < 0)
-		return err;
-
-	if (val > 4 || val == 0)
-		return -EINVAL;
-
-	mutex_lock(&data->update_lock);
-	data->fanin_cfg[nr] &= ~0x60;
-	data->fanin_cfg[nr] |= (val - 1) << 5;
-	nct6683_write(data, NCT6683_REG_FANIN_CFG(nr), data->fanin_cfg[nr]);
-	mutex_unlock(&data->update_lock);
-
-	return count;
-}
-
 static umode_t nct6683_fan_is_visible(struct kobject *kobj,
 				      struct attribute *attr, int index)
 {
 	struct device *dev = container_of(kobj, struct device, kobj);
 	struct nct6683_data *data = dev_get_drvdata(dev);
 	int fan = index / 3;	/* fan index */
+	int nr = index % 3;	/* attribute index */
 
 	if (!(data->have_fan & (1 << fan)))
+		return 0;
+
+	/*
+	 * Intel may have minimum fan speed limits,
+	 * but register location and encoding are unknown.
+	 */
+	if (nr == 2 && data->customer_id == NCT6683_CUSTOMER_ID_INTEL)
 		return 0;
 
 	return attr->mode;
 }
 
 SENSOR_TEMPLATE(fan_input, "fan%d_input", S_IRUGO, show_fan, NULL, 0);
-SENSOR_TEMPLATE(fan_pulses, "fan%d_pulses", S_IWUSR | S_IRUGO, show_fan_pulses,
-		store_fan_pulses, 0);
-SENSOR_TEMPLATE(fan_min, "fan%d_min", S_IWUSR | S_IRUGO, show_fan_min,
-		store_fan_min, 0);
+SENSOR_TEMPLATE(fan_pulses, "fan%d_pulses", S_IRUGO, show_fan_pulses, NULL, 0);
+SENSOR_TEMPLATE(fan_min, "fan%d_min", S_IRUGO, show_fan_min, NULL, 0);
 
 /*
  * nct6683_fan_is_visible uses the index into the following array
@@ -824,6 +802,17 @@ show_temp8(struct device *dev, struct device_attribute *attr, char *buf)
 }
 
 static ssize_t
+show_temp_hyst(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct sensor_device_attribute *sattr = to_sensor_dev_attr(attr);
+	struct nct6683_data *data = nct6683_update_device(dev);
+	int nr = sattr->index;
+	int temp = data->temp[1][nr] - data->temp[2][nr];
+
+	return sprintf(buf, "%d\n", temp * 1000);
+}
+
+static ssize_t
 show_temp16(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct sensor_device_attribute *sattr = to_sensor_dev_attr(attr);
@@ -831,32 +820,6 @@ show_temp16(struct device *dev, struct device_attribute *attr, char *buf)
 	int index = sattr->index;
 
 	return sprintf(buf, "%d\n", (data->temp_in[index] / 128) * 500);
-}
-
-static ssize_t
-store_temp8(struct device *dev, struct device_attribute *attr, const char *buf,
-	    size_t count)
-{
-	struct sensor_device_attribute_2 *sattr = to_sensor_dev_attr_2(attr);
-	struct nct6683_data *data = dev_get_drvdata(dev);
-	int index = sattr->index;
-	int nr = sattr->nr;
-	long val;
-	int err;
-	u16 reg;
-
-	err = kstrtol(buf, 10, &val);
-	if (err < 0)
-		return err;
-
-	reg = get_temp_reg(data, nr, index);
-
-	mutex_lock(&data->update_lock);
-	data->temp[nr][index] = clamp_val(DIV_ROUND_CLOSEST(val, 1000),
-					  -128, 127);
-	nct6683_write(data, reg, data->temp[index][nr]);
-	mutex_unlock(&data->update_lock);
-	return count;
 }
 
 /*
@@ -897,10 +860,18 @@ static umode_t nct6683_temp_is_visible(struct kobject *kobj,
 {
 	struct device *dev = container_of(kobj, struct device, kobj);
 	struct nct6683_data *data = dev_get_drvdata(dev);
-	int temp = index / 9;	/* temp index */
-	int nr = index % 8;	/* attribute index */
+	int temp = index / 7;	/* temp index */
+	int nr = index % 7;	/* attribute index */
 
-	if (nr == 7 && get_temp_type(data->temp_src[temp]) == 0)
+	/*
+	 * Intel does not have low temperature limits or temperature hysteresis
+	 * registers, or at least register location and encoding is unknown.
+	 */
+	if ((nr == 2 || nr == 4) &&
+	    data->customer_id == NCT6683_CUSTOMER_ID_INTEL)
+		return 0;
+
+	if (nr == 6 && get_temp_type(data->temp_src[temp]) == 0)
 		return 0;				/* type */
 
 	return attr->mode;
@@ -908,16 +879,11 @@ static umode_t nct6683_temp_is_visible(struct kobject *kobj,
 
 SENSOR_TEMPLATE(temp_input, "temp%d_input", S_IRUGO, show_temp16, NULL, 0);
 SENSOR_TEMPLATE(temp_label, "temp%d_label", S_IRUGO, show_temp_label, NULL, 0);
-SENSOR_TEMPLATE_2(temp_max, "temp%d_max", S_IRUGO | S_IWUSR, show_temp8,
-		  store_temp8, 0, 0);
-SENSOR_TEMPLATE_2(temp_max_hyst, "temp%d_max_hyst", S_IRUGO | S_IWUSR,
-		  show_temp8, store_temp8, 0, 1);
-SENSOR_TEMPLATE_2(temp_crit, "temp%d_crit", S_IRUGO | S_IWUSR, show_temp8,
-		  store_temp8, 0, 2);
-SENSOR_TEMPLATE_2(temp_lcrit, "temp%d_lcrit", S_IRUGO | S_IWUSR, show_temp8,
-		  store_temp8, 0, 3);
-SENSOR_TEMPLATE_2(temp_offset, "temp%d_offset", S_IRUGO | S_IWUSR,
-		show_temp8, store_temp8, 0, 4);
+SENSOR_TEMPLATE_2(temp_min, "temp%d_min", S_IRUGO, show_temp8, NULL, 0, 0);
+SENSOR_TEMPLATE_2(temp_max, "temp%d_max", S_IRUGO, show_temp8, NULL, 0, 1);
+SENSOR_TEMPLATE(temp_max_hyst, "temp%d_max_hyst", S_IRUGO, show_temp_hyst, NULL,
+		0);
+SENSOR_TEMPLATE_2(temp_crit, "temp%d_crit", S_IRUGO, show_temp8, NULL, 0, 3);
 SENSOR_TEMPLATE(temp_type, "temp%d_type", S_IRUGO, show_temp_type, NULL, 0);
 
 /*
@@ -928,12 +894,11 @@ SENSOR_TEMPLATE(temp_type, "temp%d_type", S_IRUGO, show_temp_type, NULL, 0);
 static struct sensor_device_template *nct6683_attributes_temp_template[] = {
 	&sensor_dev_template_temp_input,
 	&sensor_dev_template_temp_label,
-	&sensor_dev_template_temp_max,		/* 2 */
-	&sensor_dev_template_temp_max_hyst,	/* 3 */
-	&sensor_dev_template_temp_crit,		/* 4 */
-	&sensor_dev_template_temp_lcrit,	/* 5 */
-	&sensor_dev_template_temp_offset,	/* 6 */
-	&sensor_dev_template_temp_type,		/* 7 */
+	&sensor_dev_template_temp_min,		/* 2 */
+	&sensor_dev_template_temp_max,		/* 3 */
+	&sensor_dev_template_temp_max_hyst,	/* 4 */
+	&sensor_dev_template_temp_crit,		/* 5 */
+	&sensor_dev_template_temp_type,		/* 6 */
 	NULL
 };
 
@@ -1245,6 +1210,8 @@ static int nct6683_probe(struct platform_device *pdev)
 	data->name = nct6683_device_names[data->kind];
 	platform_set_drvdata(pdev, data);
 
+	data->customer_id = nct6683_read16(data, NCT6683_REG_CUSTOMER_ID);
+
 	nct6683_init_device(data);
 	nct6683_setup_fans(data);
 	nct6683_setup_sensors(data);
@@ -1343,32 +1310,6 @@ static int nct6683_resume(struct device *dev)
 
 	mutex_lock(&data->update_lock);
 
-#if 0 /* check if needed */
-	int i, j;
-	/* Restore limits */
-	for (i = 0; i < data->in_num; i++) {
-		if (!(data->have_in & (1 << i)))
-			continue;
-
-		nct6683_write_value(data, data->REG_IN_MINMAX[0][i],
-				    data->in[i][1]);
-		nct6683_write_value(data, data->REG_IN_MINMAX[1][i],
-				    data->in[i][2]);
-	}
-
-	for (i = 0; i < ARRAY_SIZE(data->fan_min); i++) {
-		nct6683_write_value(data, data->REG_FAN_MIN[i],
-				    data->fan_min[i]);
-	}
-
-	for (i = 0; i < 5; i++) {
-		for (j = 0; j < data->temp_num; j++) {
-			reg = get_temp_reg(data, i, j);
-			nct6683_write(data, reg, data->temp[i][j]);
-		}
-	}
-
-#endif
 	nct6683_write(data, NCT6683_HWM_CFG, data->hwm_cfg);
 
 	/* Force re-reading all values */
