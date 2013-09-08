@@ -546,7 +546,7 @@ static int get_temp_reg(struct nct6683_data *data, int nr, int index)
 	int ch = data->temp_index[index];
 	int reg = -EINVAL;
 
-	switch(data->customer_id) {
+	switch (data->customer_id) {
 	case NCT6683_CUSTOMER_ID_INTEL:
 		switch (nr) {
 		default:
