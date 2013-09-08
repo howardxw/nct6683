@@ -151,7 +151,6 @@ superio_exit(int ioreg)
 #define NCT6683_REG_MON_CFG(x)		(0x1a0 + (x))
 #define NCT6683_REG_FANIN_CFG(x)	(0x1c0 + (x))
 #define NCT6683_REG_FANOUT_CFG(x)	(0x1d0 + (x))
-#define NCT6683_REG_FANOUT_DIV(x)	(0x1d8 + (x))
 
 #define NCT6683_REG_INTEL_TEMP_MAX(x)	(0x901 + (x) * 16)
 #define NCT6683_REG_INTEL_TEMP_CRIT(x)	(0x90d + (x) * 16)
