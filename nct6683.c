@@ -293,8 +293,7 @@ struct nct6683_data {
 
 	struct device *hwmon_dev;
 
-	int num_attr_groups;
-	const struct attribute_group *groups[5];
+	const struct attribute_group *groups[6];
 
 	int temp_num;			/* number of temperature attributes */
 	u8 temp_index[NCT6683_NUM_REG_MON];
@@ -1092,19 +1091,6 @@ static const struct attribute_group nct6683_group_other = {
 	.attrs = nct6683_attributes_other,
 };
 
-/*
- * Driver and device management
- */
-
-static void nct6683_device_remove_files(struct device *dev)
-{
-	struct nct6683_data *data = dev_get_drvdata(dev);
-	int i;
-
-	for (i = 0; i < data->num_attr_groups; i++)
-		sysfs_remove_group(&dev->kobj, data->groups[i]);
-}
-
 /* Get the monitoring functions started */
 static inline void nct6683_init_device(struct nct6683_data *data)
 {
@@ -1190,7 +1176,8 @@ static int nct6683_probe(struct platform_device *pdev)
 	struct attribute_group *group;
 	struct nct6683_data *data;
 	struct resource *res;
-	int i, err;
+	int groups = 0;
+	int err;
 
 	res = platform_get_resource(pdev, IORESOURCE_IO, 0);
 	if (!devm_request_region(dev, res->start, IOREGION_LENGTH, DRVNAME)) {
@@ -1223,7 +1210,7 @@ static int nct6683_probe(struct platform_device *pdev)
 						  fls(data->have_pwm));
 		if (IS_ERR(group))
 			return PTR_ERR(group);
-		data->groups[data->num_attr_groups++] = group;
+		data->groups[groups++] = group;
 	}
 
 	if (data->in_num) {
@@ -1232,7 +1219,7 @@ static int nct6683_probe(struct platform_device *pdev)
 						  data->in_num);
 		if (IS_ERR(group))
 			return PTR_ERR(group);
-		data->groups[data->num_attr_groups++] = group;
+		data->groups[groups++] = group;
 	}
 
 	if (data->have_fan) {
@@ -1241,7 +1228,7 @@ static int nct6683_probe(struct platform_device *pdev)
 						  fls(data->have_fan));
 		if (IS_ERR(group))
 			return PTR_ERR(group);
-		data->groups[data->num_attr_groups++] = group;
+		data->groups[groups++] = group;
 	}
 
 	if (data->temp_num) {
@@ -1250,15 +1237,13 @@ static int nct6683_probe(struct platform_device *pdev)
 						  data->temp_num);
 		if (IS_ERR(group))
 			return PTR_ERR(group);
-		data->groups[data->num_attr_groups++] = group;
+		data->groups[groups++] = group;
 	}
-	data->groups[data->num_attr_groups++] = &nct6683_group_other;
+	data->groups[groups++] = &nct6683_group_other;
 
-	for (i = 0; i < data->num_attr_groups; i++) {
-		err = sysfs_create_group(&dev->kobj, data->groups[i]);
-		if (err)
-			goto exit_remove;
-	}
+	err = sysfs_create_groups(&dev->kobj, data->groups);
+	if (err)
+		goto exit_remove;
 
 	data->hwmon_dev = hwmon_device_register(dev);
 	if (IS_ERR(data->hwmon_dev)) {
@@ -1277,7 +1262,7 @@ static int nct6683_probe(struct platform_device *pdev)
 	return 0;
 
 exit_remove:
-	nct6683_device_remove_files(dev);
+	sysfs_remove_groups(&dev->kobj, data->groups);
 	return err;
 }
 
@@ -1286,7 +1271,7 @@ static int nct6683_remove(struct platform_device *pdev)
 	struct nct6683_data *data = platform_get_drvdata(pdev);
 
 	hwmon_device_unregister(data->hwmon_dev);
-	nct6683_device_remove_files(&pdev->dev);
+	sysfs_remove_groups(&pdev->dev.kobj, data->groups);
 
 	return 0;
 }
