@@ -1306,6 +1306,8 @@ static int nct6683_resume(struct device *dev)
 static const struct dev_pm_ops nct6683_dev_pm_ops = {
 	.suspend = nct6683_suspend,
 	.resume = nct6683_resume,
+	.freeze = nct6683_suspend,
+	.restore = nct6683_resume,
 };
 
 #define NCT6683_DEV_PM_OPS	(&nct6683_dev_pm_ops)
