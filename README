@@ -48,3 +48,5 @@ considered too risky and has been disabled. All limits must all be written
 from the BIOS.
 
 The driver has been tested with the Intel firmware only.
+
+The driver has been reported to work with Intel DH87RL and DH87MC motherboards.
