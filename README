@@ -4,6 +4,8 @@ Note
 Substantial testing and review feedback will be required for this driver to be
 merged into the upstream kernel. If you use the latest version of this driver,
 and/or if you can provide review feedback, please let the author know.
+Please report the board as well as the firmware version (the firmware version
+is displayed in the boot log when the driver loads).
 
 Also see Usage Note below for additional information about firmware variants.
 
@@ -49,4 +51,13 @@ from the BIOS.
 
 The driver has been tested with the Intel firmware only.
 
-The driver has been reported to work with Intel DH87RL and DH87MC motherboards.
+Tested Boards and Firmware Versions
+-----------------------------------
+
+The driver has been reported to work with the following boards and
+firmware versions.
+
+Board		Firmware version
+---------------------------------------------------------------
+Intel DH87RL	NCT6683D EC firmware version 1.0 build 04/03/13
+Intel DH87MC	NCT6683D EC firmware version 1.0 build 04/03/13
