@@ -39,10 +39,15 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 #include <linux/acpi.h>
+#include <linux/dmi.h>
 #include <linux/io.h>
 #include "compat.h"
 
 enum kinds { nct6683 };
+
+static bool force;
+module_param(force, bool, 0);
+MODULE_PARM_DESC(force, "Set to one to enable detection on non-Intel boards");
 
 static const char * const nct6683_device_names[] = {
 	"nct6683",
@@ -1327,9 +1332,19 @@ static struct platform_driver nct6683_driver = {
 
 static int __init nct6683_find(int sioaddr, struct nct6683_sio_data *sio_data)
 {
+	const char *board_vendor;
 	int addr;
 	u16 val;
 	int err;
+
+	/*
+	 * Only run on Intel boards unless the 'force' module parameter is set
+	 */
+	if (!force) {
+		board_vendor = dmi_get_system_info(DMI_BOARD_VENDOR);
+		if (!board_vendor || strcmp(board_vendor, "Intel Corporation"))
+			return -ENODEV;
+	}
 
 	err = superio_enter(sioaddr);
 	if (err)
