@@ -1,9 +1,10 @@
 Note
 ====
 
-Substantial testing and review feedback will be required for this driver to be
-merged into the upstream kernel. If you use the latest version of this driver,
-and/or if you can provide review feedback, please let the author know.
+This driver has now been integrated into the upstream kernel, and will be
+available with kernel release 3.16. The upstream driver is currently only
+enabled for Intel boards. If you use this driver, especially on non-Intel
+boards, and if you can provide review feedback, please let the author know.
 Please report the board as well as the firmware version (the firmware version
 is displayed in the boot log when the driver loads).
 
