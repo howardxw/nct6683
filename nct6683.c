@@ -28,19 +28,18 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/module.h>
-#include <linux/init.h>
-#include <linux/slab.h>
-#include <linux/jiffies.h>
-#include <linux/platform_device.h>
-#include <linux/hwmon.h>
-#include <linux/hwmon-sysfs.h>
-#include <linux/hwmon-vid.h>
-#include <linux/err.h>
-#include <linux/mutex.h>
 #include <linux/acpi.h>
 #include <linux/dmi.h>
+#include <linux/err.h>
+#include <linux/init.h>
 #include <linux/io.h>
+#include <linux/jiffies.h>
+#include <linux/hwmon.h>
+#include <linux/hwmon-sysfs.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
+#include <linux/platform_device.h>
+#include <linux/slab.h>
 #include "compat.h"
 
 enum kinds { nct6683 };
@@ -294,10 +293,8 @@ struct nct6683_data {
 	int sioreg;		/* SIO register */
 	enum kinds kind;
 	u16 customer_id;
-	const char *name;
 
 	struct device *hwmon_dev;
-
 	const struct attribute_group *groups[6];
 
 	int temp_num;			/* number of temperature attributes */
@@ -308,8 +305,8 @@ struct nct6683_data {
 	u8 in_index[NCT6683_NUM_REG_MON];
 	u8 in_src[NCT6683_NUM_REG_MON];
 
-	struct mutex update_lock;
-	bool valid;		/* true if following fields are valid */
+	struct mutex update_lock;	/* used to protect sensor updates */
+	bool valid;			/* true if following fields are valid */
 	unsigned long last_updated;	/* In jiffies */
 
 	/* Voltage attribute values */
@@ -601,8 +598,7 @@ static struct nct6683_data *nct6683_update_device(struct device *dev)
 
 	mutex_lock(&data->update_lock);
 
-	if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
-	    || !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ) || !data->valid) {
 		/* Measured voltages and limits */
 		for (i = 0; i < data->in_num; i++) {
 			for (j = 0; j < 3; j++) {
@@ -921,7 +917,7 @@ show_pwm(struct device *dev, struct device_attribute *attr, char *buf)
 	return sprintf(buf, "%d\n", data->pwm[index]);
 }
 
-SENSOR_TEMPLATE(pwm, "pwm%d", S_IRUGO, show_pwm, 0, 0);
+SENSOR_TEMPLATE(pwm, "pwm%d", S_IRUGO, show_pwm, NULL, 0);
 
 static umode_t nct6683_pwm_is_visible(struct kobject *kobj,
 				      struct attribute *attr, int index)
@@ -946,14 +942,6 @@ static struct sensor_template_group nct6683_pwm_template_group = {
 	.is_visible = nct6683_pwm_is_visible,
 	.base = 1,
 };
-
-static ssize_t
-show_name(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	struct nct6683_data *data = dev_get_drvdata(dev);
-
-	return sprintf(buf, "%s\n", data->name);
-}
 
 static ssize_t
 show_global_beep(struct device *dev, struct device_attribute *attr, char *buf)
@@ -1079,14 +1067,12 @@ error:
 	return count;
 }
 
-static DEVICE_ATTR(name, S_IRUGO, show_name, NULL);
 static DEVICE_ATTR(intrusion0_alarm, S_IWUSR | S_IRUGO, show_caseopen,
 		   clear_caseopen);
 static DEVICE_ATTR(beep_enable, S_IWUSR | S_IRUGO, show_global_beep,
 		   store_global_beep);
 
 static struct attribute *nct6683_attributes_other[] = {
-	&dev_attr_name.attr,
 	&dev_attr_intrusion0_alarm.attr,
 	&dev_attr_beep_enable.attr,
 	NULL
@@ -1180,15 +1166,13 @@ static int nct6683_probe(struct platform_device *pdev)
 	struct nct6683_sio_data *sio_data = dev->platform_data;
 	struct attribute_group *group;
 	struct nct6683_data *data;
+	struct device *hwmon_dev;
 	struct resource *res;
 	int groups = 0;
-	int err;
 
 	res = platform_get_resource(pdev, IORESOURCE_IO, 0);
-	if (!devm_request_region(dev, res->start, IOREGION_LENGTH, DRVNAME)) {
-		dev_err(dev, "busy\n");
+	if (!devm_request_region(dev, res->start, IOREGION_LENGTH, DRVNAME))
 		return -EBUSY;
-	}
 
 	data = devm_kzalloc(dev, sizeof(struct nct6683_data), GFP_KERNEL);
 	if (!data)
@@ -1198,7 +1182,6 @@ static int nct6683_probe(struct platform_device *pdev)
 	data->sioreg = sio_data->sioreg;
 	data->addr = res->start;
 	mutex_init(&data->update_lock);
-	data->name = nct6683_device_names[data->kind];
 	platform_set_drvdata(pdev, data);
 
 	data->customer_id = nct6683_read16(data, NCT6683_REG_CUSTOMER_ID);
@@ -1246,39 +1229,17 @@ static int nct6683_probe(struct platform_device *pdev)
 	}
 	data->groups[groups++] = &nct6683_group_other;
 
-	err = sysfs_create_groups(&dev->kobj, data->groups);
-	if (err)
-		goto exit_remove;
-
-	data->hwmon_dev = hwmon_device_register(dev);
-	if (IS_ERR(data->hwmon_dev)) {
-		err = PTR_ERR(data->hwmon_dev);
-		goto exit_remove;
-	}
-
 	dev_info(dev, "%s EC firmware version %d.%d build %02x/%02x/%02x\n",
-		nct6683_chip_names[data->kind],
-		nct6683_read(data, NCT6683_REG_VERSION_HI),
-		nct6683_read(data, NCT6683_REG_VERSION_LO),
-		nct6683_read(data, NCT6683_REG_BUILD_MONTH),
-		nct6683_read(data, NCT6683_REG_BUILD_DAY),
-		nct6683_read(data, NCT6683_REG_BUILD_YEAR));
+		 nct6683_chip_names[data->kind],
+		 nct6683_read(data, NCT6683_REG_VERSION_HI),
+		 nct6683_read(data, NCT6683_REG_VERSION_LO),
+		 nct6683_read(data, NCT6683_REG_BUILD_MONTH),
+		 nct6683_read(data, NCT6683_REG_BUILD_DAY),
+		 nct6683_read(data, NCT6683_REG_BUILD_YEAR));
 
-	return 0;
-
-exit_remove:
-	sysfs_remove_groups(&dev->kobj, data->groups);
-	return err;
-}
-
-static int nct6683_remove(struct platform_device *pdev)
-{
-	struct nct6683_data *data = platform_get_drvdata(pdev);
-
-	hwmon_device_unregister(data->hwmon_dev);
-	sysfs_remove_groups(&pdev->dev.kobj, data->groups);
-
-	return 0;
+	hwmon_dev = devm_hwmon_device_register_with_groups(dev,
+			nct6683_device_names[data->kind], data, data->groups);
+	return PTR_ERR_OR_ZERO(hwmon_dev);
 }
 
 #ifdef CONFIG_PM
@@ -1327,7 +1288,6 @@ static struct platform_driver nct6683_driver = {
 		.pm	= NCT6683_DEV_PM_OPS,
 	},
 	.probe		= nct6683_probe,
-	.remove		= nct6683_remove,
 };
 
 static int __init nct6683_find(int sioaddr, struct nct6683_sio_data *sio_data)
@@ -1430,7 +1390,7 @@ static int __init sensors_nct6683_init(void)
 		pdev[i] = platform_device_alloc(DRVNAME, address);
 		if (!pdev[i]) {
 			err = -ENOMEM;
-			goto exit_device_put;
+			goto exit_device_unregister;
 		}
 
 		err = platform_device_add_data(pdev[i], &sio_data,
@@ -1468,9 +1428,11 @@ static int __init sensors_nct6683_init(void)
 	return 0;
 
 exit_device_put:
-	for (i = 0; i < ARRAY_SIZE(pdev); i++) {
+	platform_device_put(pdev[i]);
+exit_device_unregister:
+	while (--i >= 0) {
 		if (pdev[i])
-			platform_device_put(pdev[i]);
+			platform_device_unregister(pdev[i]);
 	}
 exit_unregister:
 	platform_driver_unregister(&nct6683_driver);
