@@ -30,7 +30,6 @@
 
 #include <linux/acpi.h>
 #include <linux/delay.h>
-#include <linux/dmi.h>
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/io.h>
@@ -402,7 +401,8 @@ struct sensor_template_group {
 };
 
 static struct attribute_group *
-nct6683_create_attr_group(struct device *dev, struct sensor_template_group *tg,
+nct6683_create_attr_group(struct device *dev,
+			  const struct sensor_template_group *tg,
 			  int repeat)
 {
 	struct sensor_device_attribute_2 *a2;
@@ -447,6 +447,7 @@ nct6683_create_attr_group(struct device *dev, struct sensor_template_group *tg,
 				 (*t)->dev_attr.attr.name, tg->base + i);
 			if ((*t)->s2) {
 				a2 = &su->u.a2;
+				sysfs_attr_init(&a2->dev_attr.attr);
 				a2->dev_attr.attr.name = su->name;
 				a2->nr = (*t)->u.s.nr + i;
 				a2->index = (*t)->u.s.index;
@@ -457,6 +458,7 @@ nct6683_create_attr_group(struct device *dev, struct sensor_template_group *tg,
 				*attrs = &a2->dev_attr.attr;
 			} else {
 				a = &su->u.a1;
+				sysfs_attr_init(&a->dev_attr.attr);
 				a->dev_attr.attr.name = su->name;
 				a->index = (*t)->u.index + i;
 				a->dev_attr.attr.mode =
@@ -710,7 +712,7 @@ static struct sensor_device_template *nct6683_attributes_in_template[] = {
 	NULL
 };
 
-static struct sensor_template_group nct6683_in_template_group = {
+static const struct sensor_template_group nct6683_in_template_group = {
 	.templates = nct6683_attributes_in_template,
 	.is_visible = nct6683_in_is_visible,
 };
@@ -781,7 +783,7 @@ static struct sensor_device_template *nct6683_attributes_fan_template[] = {
 	NULL
 };
 
-static struct sensor_template_group nct6683_fan_template_group = {
+static const struct sensor_template_group nct6683_fan_template_group = {
 	.templates = nct6683_attributes_fan_template,
 	.is_visible = nct6683_fan_is_visible,
 	.base = 1,
@@ -909,7 +911,7 @@ static struct sensor_device_template *nct6683_attributes_temp_template[] = {
 	NULL
 };
 
-static struct sensor_template_group nct6683_temp_template_group = {
+static const struct sensor_template_group nct6683_temp_template_group = {
 	.templates = nct6683_attributes_temp_template,
 	.is_visible = nct6683_temp_is_visible,
 	.base = 1,
@@ -971,14 +973,14 @@ static struct sensor_device_template *nct6683_attributes_pwm_template[] = {
 	NULL
 };
 
-static struct sensor_template_group nct6683_pwm_template_group = {
+static const struct sensor_template_group nct6683_pwm_template_group = {
 	.templates = nct6683_attributes_pwm_template,
 	.is_visible = nct6683_pwm_is_visible,
 	.base = 1,
 };
 
 static ssize_t
-show_global_beep(struct device *dev, struct device_attribute *attr, char *buf)
+beep_enable_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct nct6683_data *data = dev_get_drvdata(dev);
 	int ret;
@@ -1003,7 +1005,7 @@ error:
 }
 
 static ssize_t
-store_global_beep(struct device *dev, struct device_attribute *attr,
+beep_enable_store(struct device *dev, struct device_attribute *attr,
 		  const char *buf, size_t count)
 {
 	struct nct6683_data *data = dev_get_drvdata(dev);
@@ -1038,7 +1040,8 @@ error:
 /* Case open detection */
 
 static ssize_t
-show_caseopen(struct device *dev, struct device_attribute *attr, char *buf)
+intrusion0_alarm_show(struct device *dev, struct device_attribute *attr,
+		      char *buf)
 {
 	struct nct6683_data *data = dev_get_drvdata(dev);
 	int ret;
@@ -1063,8 +1066,8 @@ error:
 }
 
 static ssize_t
-clear_caseopen(struct device *dev, struct device_attribute *attr,
-	       const char *buf, size_t count)
+intrusion0_alarm_store(struct device *dev, struct device_attribute *attr,
+		       const char *buf, size_t count)
 {
 	struct nct6683_data *data = dev_get_drvdata(dev);
 	unsigned long val;
@@ -1101,10 +1104,8 @@ error:
 	return count;
 }
 
-static DEVICE_ATTR(intrusion0_alarm, S_IWUSR | S_IRUGO, show_caseopen,
-		   clear_caseopen);
-static DEVICE_ATTR(beep_enable, S_IWUSR | S_IRUGO, show_global_beep,
-		   store_global_beep);
+static DEVICE_ATTR_RW(intrusion0_alarm);
+static DEVICE_ATTR_RW(beep_enable);
 
 static struct attribute *nct6683_attributes_other[] = {
 	&dev_attr_intrusion0_alarm.attr,
@@ -1338,7 +1339,6 @@ static const struct dev_pm_ops nct6683_dev_pm_ops = {
 
 static struct platform_driver nct6683_driver = {
 	.driver = {
-		.owner	= THIS_MODULE,
 		.name	= DRVNAME,
 		.pm	= NCT6683_DEV_PM_OPS,
 	},
